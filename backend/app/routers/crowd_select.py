@@ -6,7 +6,11 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from app.schemas import ActionPayload, ActionResult
-from app.services.crowd_select import select_crowd, get_crowd_result
+from app.services.crowd_select import (
+    get_crowd_result,
+    rebuild_crowd,
+    select_crowd,
+)
 from app.store import store, query_filters
 
 router = APIRouter(prefix="/api/crowd-select", tags=["crowd_select"])
@@ -29,6 +33,23 @@ def detail(entry_id: int) -> dict[str, Any]:
     if row is None:
         raise HTTPException(status_code=404, detail="Not found")
     return row
+
+
+@router.post("/{condition_id}/recompute")
+def recompute(condition_id: str) -> ActionResult:
+    try:
+        result = rebuild_crowd(condition_id)
+        return ActionResult(ok=True, message="Recomputed", entry=result)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/{condition_id}/rosters/{roster_id}")
+def roster_detail(condition_id: str, roster_id: str) -> dict[str, Any]:
+    roster = store.get_roster(condition_id, roster_id)
+    if roster is None:
+        raise HTTPException(status_code=404, detail="Roster not found")
+    return roster
 
 
 @router.post("/{condition_id}/run")

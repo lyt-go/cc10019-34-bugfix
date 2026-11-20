@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from app.schemas import ActionPayload, ActionResult
-from app.services.overlap_analysis import analyze_overlap, get_overlap_result
+from app.services.overlap_analysis import analyze_overlap, get_overlap_result, review_overlap
 from app.store import store
 
 router = APIRouter(prefix="/api/overlap-analysis", tags=["overlap_analysis"])
@@ -49,6 +49,14 @@ def result(task_id: str) -> dict[str, Any]:
     if res is None:
         raise HTTPException(status_code=404, detail="Result not found")
     return res
+
+
+@router.get("/{task_id}/review")
+def review(task_id: str) -> dict[str, Any]:
+    try:
+        return review_overlap(task_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.post("/{entry_id}/actions")

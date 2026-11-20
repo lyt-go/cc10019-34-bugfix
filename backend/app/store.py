@@ -20,6 +20,9 @@ class Store:
         self._snapshots: dict[str, list[dict[str, Any]]] = {}
         # 计算结果缓存
         self._compute_cache: dict[str, dict[str, Any]] = {}
+        # 圈选名单版本：condition_id -> {roster_id -> roster}
+        self._rosters: dict[str, dict[str, dict[str, Any]]] = {}
+        self._next_roster_seq = 1
         # 下一个自增ID
         self._next_ids: dict[str, int] = {
             name: max((int(row.get("id", 0)) for row in self._tables[name]), default=0) + 1
@@ -108,6 +111,62 @@ class Store:
     def get_artifact_keys(self, artifact_type: str) -> list[str]:
         """获取某类型产物的所有键。"""
         return list(self._artifacts.get(artifact_type, {}).keys())
+
+    # ========== 圈选名单版本管理 ==========
+    def _roster_bucket(self, condition_id: str) -> dict[str, dict[str, Any]]:
+        return self._rosters.setdefault(condition_id, {})
+
+    def save_roster(
+        self,
+        condition_id: str,
+        user_ids: list[str],
+        *,
+        kind: str,
+        version: str = "",
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """保存一份圈选名单并返回带版本标识的名单记录。
+
+        kind=full 是圈选重算产出的完整名单；kind=preview 只用于页面预览，
+        不能代表完整名单，也不能当作“已确认的空名单”。
+        """
+        bucket = self._roster_bucket(condition_id)
+        roster_id = f"{condition_id}@{self._next_roster_seq}"
+        self._next_roster_seq += 1
+        roster = {
+            "roster_id": roster_id,
+            "condition_id": condition_id,
+            "kind": kind,
+            "version": version,
+            "complete": kind == "full",
+            "confirmed": kind == "full",
+            "user_ids": list(user_ids),
+            "user_count": len(user_ids),
+        }
+        if extra:
+            roster.update(extra)
+        bucket[roster_id] = roster
+        return roster
+
+    def get_roster(self, condition_id: str, roster_id: str | None = None) -> dict[str, Any] | None:
+        """按名单标识取名单；不传标识时返回该条件最新的完整名单。"""
+        bucket = self._roster_bucket(condition_id)
+        if roster_id is not None:
+            return bucket.get(roster_id)
+        latest: dict[str, Any] | None = None
+        for roster in bucket.values():
+            if roster.get("complete"):
+                latest = roster
+        return latest
+
+    def get_roster_for_preview(self, condition_id: str, limit: int = 500) -> dict[str, Any] | None:
+        """取用于预览的名单：有完整名单用完整名单，否则回退到只有预览的旧结果。"""
+        bucket = self._roster_bucket(condition_id)
+        roster = self.get_roster(condition_id)
+        if roster is not None:
+            return roster
+        previews = [r for r in bucket.values() if r.get("kind") == "preview"]
+        return previews[-1] if previews else None
 
     # ========== 快照管理 ==========
     def add_snapshot(self, snapshot_type: str, data: dict[str, Any]) -> None:
